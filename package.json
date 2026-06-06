@@ -1,0 +1,17 @@
+{
+  "name": "phonetree",
+  "version": "1.0.0",
+  "description": "Thank You For Calling — Interactive Audio Phone Tree Platform",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'No build step required'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.478.0",
+    "@aws-sdk/s3-request-presigner": "^3.478.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "twilio": "^4.20.0",
+    "busboy": "^1.6.0"
+  }
+}
