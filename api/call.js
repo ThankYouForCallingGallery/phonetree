@@ -65,6 +65,23 @@ export default async function handler(req, res) {
       return sendTwiml(res, twiml)
     }
 
+    // Universal keypress routing — check paths table for any digit press
+    // This handles ALL keypress actions across all node types
+    if (digit && digit !== '*' && digit !== '#') {
+      const { data: keypressPath } = await supabase
+        .from('paths')
+        .select('to_node_id')
+        .eq('from_node_id', node.id)
+        .eq('action_type', 'keypress')
+        .eq('key', digit)
+        .single()
+
+      if (keypressPath?.to_node_id) {
+        twiml.redirect('/api/call?node=' + keypressPath.to_node_id)
+        return sendTwiml(res, twiml)
+      }
+    }
+
     // Route based on node type
     switch (node.type) {
       case 'trunk_intro':
@@ -75,7 +92,7 @@ export default async function handler(req, res) {
         return serveAudioNode(twiml, res, node)
 
       case 'trunk_gate':
-        return serveTrunkGate(twiml, res, node)
+        return serveTrunkGate(twiml, res, node, digit)
 
       case 'trunk_menu':
         return serveTrunkMenuPlaylist(twiml, res, node, digit, callSid, req.query)
@@ -118,8 +135,14 @@ function serveTrunkIntro(twiml, res) {
   return sendTwiml(res, twiml)
 }
 
-function serveTrunkGate(twiml, res, node) {
-  // Must press 1 to enter — replays on timeout, no escape
+function serveTrunkGate(twiml, res, node, digit) {
+  // If press 1 received — advance to trunk_enter
+  if (digit === '1') {
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_enter)
+    return sendTwiml(res, twiml)
+  }
+
+  // Wrong key or no key — replay gate
   const gather = twiml.gather({
     numDigits: 1,
     timeout: 10,
