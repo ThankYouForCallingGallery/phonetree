@@ -38,9 +38,10 @@ export default async function handler(req, res) {
     // Log the call event
     await logCallEvent(callSid, nodeId, digit)
 
-    // First call — no node yet, start at trunk intro
+    // First call — no node yet, redirect to trunk_intro node so audio plays
     if (!nodeId) {
-      return serveTrunkIntro(twiml, res)
+      twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_intro)
+      return sendTwiml(res, twiml)
     }
 
     // Handle global navigation keys before node lookup
