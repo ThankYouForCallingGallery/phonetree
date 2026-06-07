@@ -11,11 +11,15 @@ import twilio from 'twilio'
 
 const VoiceResponse = twilio.twiml.VoiceResponse
 
-// Trunk node fixed UUIDs (inserted by schema.sql)
+// Trunk node fixed UUIDs
 const TRUNK_IDS = {
-  trunk_intro: '00000000-0000-0000-0000-000000000001',
-  trunk_menu:  '00000000-0000-0000-0000-000000000002',
-  trunk_about: '00000000-0000-0000-0000-000000000003',
+  trunk_intro:  '00000000-0000-0000-0000-000000000001',
+  trunk_gate:   '00000000-0000-0000-0000-000000000002',
+  trunk_enter:  '00000000-0000-0000-0000-000000000003',
+  trunk_count:  '00000000-0000-0000-0000-000000000004',
+  trunk_menu:   '00000000-0000-0000-0000-000000000005',
+  trunk_repeat: '00000000-0000-0000-0000-000000000006',
+  trunk_about:  '00000000-0000-0000-0000-000000000007',
 }
 
 export default async function handler(req, res) {
@@ -41,7 +45,7 @@ export default async function handler(req, res) {
 
     // Handle global navigation keys before node lookup
     if (digit === '00') {
-      return redirectToTrunk(twiml, res)
+      return redirectToNode(twiml, res, TRUNK_IDS.trunk_menu)
     }
     if (digit === '0') {
       return redirectToLastMenu(twiml, res, callSid)
@@ -56,7 +60,6 @@ export default async function handler(req, res) {
 
     if (error || !node) {
       console.error('Node lookup failed:', JSON.stringify(error), 'nodeId:', nodeId)
-      // Fallback to trunk menu rather than error
       twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
       return sendTwiml(res, twiml)
     }
@@ -64,11 +67,21 @@ export default async function handler(req, res) {
     // Route based on node type
     switch (node.type) {
       case 'trunk_intro':
+      case 'trunk_enter':
+      case 'trunk_count':
       case 'project_intro':
       case 'audio_clip':
         return serveAudioNode(twiml, res, node)
 
+      case 'trunk_gate':
+        return serveTrunkGate(twiml, res, node)
+
       case 'trunk_menu':
+        return serveTrunkMenuPlaylist(twiml, res, node, digit, callSid, req.query)
+
+      case 'trunk_repeat':
+        return serveTrunkRepeat(twiml, res, node, digit)
+
       case 'project_menu':
         return serveMenuNode(twiml, res, node, digit, callSid)
 
@@ -87,8 +100,7 @@ export default async function handler(req, res) {
 
       default:
         twiml.say('This section is not yet available.')
-        addMainMenuPrompt(twiml)
-        return sendTwiml(res, twiml)
+        return redirectToNode(twiml, res, TRUNK_IDS.trunk_menu)
     }
   } catch (err) {
     console.error('Call handler error:', err)
@@ -97,12 +109,126 @@ export default async function handler(req, res) {
   }
 }
 
-// ─── Node Handlers ────────────────────────────────────────────────────────────
+// ─── Trunk Node Handlers ──────────────────────────────────────────────────────
 
 function serveTrunkIntro(twiml, res) {
-  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
+  // Auto-play into trunk_gate
+  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_gate)
   return sendTwiml(res, twiml)
 }
+
+function serveTrunkGate(twiml, res, node) {
+  // Must press 1 to enter — replays on timeout, no escape
+  const gather = twiml.gather({
+    numDigits: 1,
+    timeout: 10,
+    action: '/api/call?node=' + TRUNK_IDS.trunk_gate,
+    method: 'POST',
+  })
+
+  if (node.audio_url) {
+    gather.play(node.audio_url)
+  } else {
+    gather.say('Press 1 to enter.')
+  }
+
+  // Timeout — replay gate (no escape)
+  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_gate)
+  return sendTwiml(res, twiml)
+}
+
+// Handle press 1 from gate — redirect to trunk_enter
+// This is called when gate receives a digit
+function handleTrunkGateDigit(twiml, res, digit) {
+  if (digit === '1') {
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_enter)
+  } else {
+    // Wrong key — replay gate
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_gate)
+  }
+  return sendTwiml(res, twiml)
+}
+
+async function serveTrunkMenuPlaylist(twiml, res, node, digit, callSid, query) {
+  // Track as last menu for 0/back key
+  await updateLastMenu(callSid, node.id)
+
+  const tracks = node.playlist_tracks || []
+  const trackIndex = parseInt(query.track || '0', 10)
+
+  // If a digit was pressed, find matching path and jump immediately
+  if (digit && digit !== '*') {
+    const { data: path } = await supabase
+      .from('paths')
+      .select('*')
+      .eq('from_node_id', node.id)
+      .eq('key', digit)
+      .single()
+
+    if (path?.to_node_id) {
+      twiml.redirect('/api/call?node=' + path.to_node_id)
+      return sendTwiml(res, twiml)
+    }
+  }
+
+  // No tracks yet — placeholder
+  if (!tracks.length) {
+    const gather = twiml.gather({
+      numDigits: 2,
+      timeout: 10,
+      action: '/api/call?node=' + node.id,
+      method: 'POST',
+    })
+    gather.say('Welcome to Thank You For Calling. No projects are available yet.')
+    twiml.redirect('/api/call?node=' + node.id)
+    return sendTwiml(res, twiml)
+  }
+
+  // End of playlist — go to trunk_repeat
+  if (trackIndex >= tracks.length) {
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_repeat)
+    return sendTwiml(res, twiml)
+  }
+
+  const currentTrack = tracks[trackIndex]
+
+  // Gather keypresses while playing — any digit triggers immediate action
+  const gather = twiml.gather({
+    numDigits: 1,
+    timeout: 999,
+    action: '/api/call?node=' + node.id + '&track=' + (trackIndex + 1),
+    method: 'POST',
+  })
+
+  gather.play(currentTrack.audio_url)
+
+  // Auto-advance to next track
+  twiml.redirect('/api/call?node=' + node.id + '&track=' + (trackIndex + 1))
+  return sendTwiml(res, twiml)
+}
+
+function serveTrunkRepeat(twiml, res, node, digit) {
+  // * loops back to trunk_menu from start
+  // Any other key or no key — play repeat audio then loop
+  const gather = twiml.gather({
+    numDigits: 1,
+    timeout: 10,
+    action: '/api/call?node=' + TRUNK_IDS.trunk_repeat,
+    method: 'POST',
+  })
+
+  if (node.audio_url) {
+    gather.play(node.audio_url)
+  } else {
+    gather.say('Press star to hear the menu again.')
+  }
+
+  // Timeout or * — loop back to trunk_menu from start
+  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu + '&track=0')
+  return sendTwiml(res, twiml)
+}
+
+// ─── Standard Node Handlers ───────────────────────────────────────────────────
 
 function serveAudioNode(twiml, res, node) {
   if (node.audio_url) {
@@ -113,16 +239,14 @@ function serveAudioNode(twiml, res, node) {
   if (node.auto_next_node) {
     twiml.redirect('/api/call?node=' + node.auto_next_node)
   } else {
-    addMainMenuPrompt(twiml)
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
   }
   return sendTwiml(res, twiml)
 }
 
 async function serveMenuNode(twiml, res, node, digit, callSid) {
-  // Track last menu visited for 0 (back) key
   await updateLastMenu(callSid, node.id)
 
-  // If a digit was pressed, find the matching path
   if (digit && digit !== '#') {
     const { data: path } = await supabase
       .from('paths')
@@ -137,13 +261,11 @@ async function serveMenuNode(twiml, res, node, digit, callSid) {
     }
   }
 
-  // # key — go to about node
   if (digit === '#' && node.about_node_id) {
     twiml.redirect('/api/call?node=' + node.about_node_id)
     return sendTwiml(res, twiml)
   }
 
-  // Play menu audio and gather input
   const gather = twiml.gather({
     numDigits: 2,
     timeout: 10,
@@ -154,10 +276,9 @@ async function serveMenuNode(twiml, res, node, digit, callSid) {
   if (node.audio_url) {
     gather.play(node.audio_url)
   } else {
-    gather.say('Welcome to Thank You For Calling. No projects are available yet. Press hash for more information.')
+    gather.say('No audio available for this menu yet.')
   }
 
-  // Timeout fallback — replay menu
   twiml.redirect('/api/call?node=' + node.id)
   return sendTwiml(res, twiml)
 }
@@ -168,7 +289,7 @@ async function servePlaylistNode(twiml, res, node, digit, query) {
 
   if (!tracks.length) {
     twiml.say('This playlist has no tracks yet.')
-    addMainMenuPrompt(twiml)
+    twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
     return sendTwiml(res, twiml)
   }
 
@@ -178,7 +299,7 @@ async function servePlaylistNode(twiml, res, node, digit, query) {
     if (node.loop) {
       twiml.redirect('/api/call?node=' + node.id + '&track=0')
     } else {
-      addMainMenuPrompt(twiml)
+      twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
     }
     return sendTwiml(res, twiml)
   }
@@ -226,8 +347,8 @@ function serveReturnNode(twiml, res, node, digit) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function redirectToTrunk(twiml, res) {
-  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
+function redirectToNode(twiml, res, nodeId) {
+  twiml.redirect('/api/call?node=' + nodeId)
   return sendTwiml(res, twiml)
 }
 
@@ -241,17 +362,6 @@ async function redirectToLastMenu(twiml, res, callSid) {
   const nodeId = data?.last_menu_node_id || TRUNK_IDS.trunk_menu
   twiml.redirect('/api/call?node=' + nodeId)
   return sendTwiml(res, twiml)
-}
-
-function addMainMenuPrompt(twiml) {
-  const gather = twiml.gather({
-    numDigits: 2,
-    timeout: 10,
-    action: '/api/call?node=' + TRUNK_IDS.trunk_menu,
-    method: 'POST',
-  })
-  gather.say('Press 0 0 to return to the main menu.')
-  twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
 }
 
 async function updateLastMenu(callSid, nodeId) {
