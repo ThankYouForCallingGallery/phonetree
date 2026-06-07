@@ -523,7 +523,8 @@ function drawNode(n){
   ctx.fillStyle=t.tc;ctx.font='500 11px system-ui';ctx.textAlign='center';
   ctx.fillText(trunc(n.name,16),n.x+NW/2,n.y+20);
   ctx.fillStyle=t.sc;ctx.font='9px system-ui';
-  const sub=n.type==='playlist'?`${(n.tracks||[]).length} tracks`:(n.audio_url?n.file||'audio uploaded':(n.locked?'no audio yet':'no file yet'));
+  const isPlaylist=n.type==='playlist'||n.type==='trunk_menu';
+  const sub=isPlaylist?`${(n.tracks||[]).length} tracks`:(n.audio_url?n.file||'audio uploaded':(n.locked?'no audio yet':'no file yet'));
   ctx.fillText(trunc(sub,22),n.x+NW/2,n.y+33);
   ctx.fillStyle=t.sc+'88';ctx.font='8px system-ui';
   ctx.fillText(t.label.toLowerCase(),n.x+NW/2,n.y+45);
@@ -677,7 +678,8 @@ function renderProps(){
   h+=`<div class="sdiv"></div>`;
   h+=`<div><div class="pl">Name</div><input class="pfield" value="${escQ(n.name)}" onchange="upd('${n.id}','name',this.value)"></div>`;
   if(n.type!=='return'){
-    h+=`<div><div class="pl">${n.type==='playlist'?'Intro audio (optional)':'Audio file'}</div>`;
+    const isPlaylistType=n.type==='playlist'||n.type==='trunk_menu';
+    h+=`<div><div class="pl">${isPlaylistType?'Intro audio (optional)':'Audio file'}</div>`;
     if(n.audio_url){
       h+=`<div class="audio-bar"><i class="ti ti-music"></i><span>${escQ(n.file||'uploaded')}</span></div>`;
       h+=`<div style="display:flex;gap:5px;margin-top:5px;">
@@ -689,7 +691,7 @@ function renderProps(){
     }
     h+=`</div>`;
   }
-  if(n.type==='playlist'){
+  if(n.type==='playlist'||n.type==='trunk_menu'){
     h+=`<div class="sdiv"></div><div class="pl">Playlist tracks (${(n.tracks||[]).length})</div>`;
     if(!(n.tracks||[]).length)h+=`<div style="font-size:11px;color:#aaa;padding:4px 0;">No tracks yet</div>`;
     (n.tracks||[]).forEach((tr,i)=>{
