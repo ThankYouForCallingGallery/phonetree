@@ -2,5 +2,7 @@
   "version": 2,
   "buildCommand": "echo 'no build'",
   "outputDirectory": "public",
-  "public": true
+  "rewrites": [
+    { "source": "/editor", "destination": "/editor.html" }
+  ]
 }
