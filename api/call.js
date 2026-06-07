@@ -231,14 +231,22 @@ function serveTrunkRepeat(twiml, res, node, digit) {
 
 // ─── Standard Node Handlers ───────────────────────────────────────────────────
 
-function serveAudioNode(twiml, res, node) {
+async function serveAudioNode(twiml, res, node) {
   if (node.audio_url) {
     twiml.play(node.audio_url)
   } else {
     twiml.say('This section has no audio yet.')
   }
-  if (node.auto_next_node) {
-    twiml.redirect('/api/call?node=' + node.auto_next_node)
+  // Look up autoplay path from paths table
+  const { data: path } = await supabase
+    .from('paths')
+    .select('to_node_id')
+    .eq('from_node_id', node.id)
+    .eq('action_type', 'autoplay')
+    .single()
+
+  if (path?.to_node_id) {
+    twiml.redirect('/api/call?node=' + path.to_node_id)
   } else {
     twiml.redirect('/api/call?node=' + TRUNK_IDS.trunk_menu)
   }
