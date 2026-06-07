@@ -319,7 +319,7 @@ async function loadTree(view){
 
 function dbToNode(r){
   return{
-    id:r.id,type:r.node_type,x:r.canvas_x||120,y:r.canvas_y||120,
+    id:r.id,type:r.type,x:r.canvas_x||120,y:r.canvas_y||120,
     name:r.name||'',file:r.audio_url?r.audio_url.split('/').pop():null,
     audio_url:r.audio_url||null,locked:TRUNK_UUID_SET.has(r.id),
     shuffle:r.shuffle||false,loop:r.loop||false,
@@ -338,7 +338,7 @@ async function saveTree(){
   setTag('saving…','#E6F1FB','#0C447C');
   try{
     const nodeRows=nodes.map(n=>({
-      id:n.id,node_type:n.type,name:n.name,
+      id:n.id,type:n.type,name:n.name,
       canvas_x:Math.round(n.x),canvas_y:Math.round(n.y),
       audio_url:n.audio_url||null,shuffle:n.shuffle||false,
       loop:n.loop||false,playlist_tracks:n.tracks||[],
