@@ -6,7 +6,7 @@
  * and returns TwiML telling Twilio what to do next.
  */
 
-import supabase from '../../lib/supabase.js'
+import supabase from '../lib/supabase.js'
 import twilio from 'twilio'
 
 const VoiceResponse = twilio.twiml.VoiceResponse

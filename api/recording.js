@@ -8,8 +8,8 @@
 
 import twilio from 'twilio'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
-import b2, { BUCKET, PUBLIC_URL } from '../../lib/b2.js'
-import supabase from '../../lib/supabase.js'
+import b2, { BUCKET, PUBLIC_URL } from '../lib/b2.js'
+import supabase from '../lib/supabase.js'
 
 const VoiceResponse = twilio.twiml.VoiceResponse
 
